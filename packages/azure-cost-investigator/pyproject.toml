@@ -1,0 +1,26 @@
+[project]
+name = "azure-cost-investigator"
+version = "0.1.0"
+description = "Claude Code skill: read-only Azure cost / FinOps investigator. Cost rules + knowledge corpus on top of azure-investigator-core."
+readme = "../../README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Mindaugas Nakrosis", email = "mindaugasm@intelme.ai" }]
+dependencies = [
+    "azure-investigator-core",
+    "typer>=0.12",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+azure-cost-investigator = "azure_cost_investigator.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/azure_cost_investigator"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/azure_cost_investigator/knowledge" = "azure_cost_investigator/knowledge"
