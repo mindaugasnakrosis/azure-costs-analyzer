@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# venv / build
+.venv/
+venv/
+env/
+build/
+dist/
+wheels/
+*.whl
+
+# uv
+.uv/
+
+# Test + tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Per-machine Claude Code settings
+.claude/settings.local.json
+
+# Snapshots are user data, never repo data
+~/.local/share/azure-investigator/
+~/Library/Application Support/azure-investigator/
+
+# Local env
+.env
+.env.*
+!.env.example

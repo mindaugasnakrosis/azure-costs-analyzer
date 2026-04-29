@@ -1,0 +1,74 @@
+[project]
+name = "azure-investigator"
+version = "0.1.0"
+description = "Read-only Azure investigator: shared core + per-persona Claude Code skills (cost, security)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Mindaugas Nakrosis", email = "mindaugasm@intelme.ai" }]
+keywords = ["azure", "finops", "cost-optimization", "claude-code", "claude-skill"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+
+[tool.uv.workspace]
+members = [
+    "packages/azure-investigator-core",
+    "packages/azure-cost-investigator",
+    "packages/azure-security-investigator",
+]
+
+[tool.uv.sources]
+azure-investigator-core = { workspace = true }
+azure-cost-investigator = { workspace = true }
+azure-security-investigator = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "PL",  # pylint subset
+]
+ignore = [
+    "E501",   # line length — let formatter handle it
+    "PLR0913", # too many arguments — Pydantic models legitimately have many
+    "PLR2004", # magic-value-comparison — common in rule thresholds
+    "PLR0912", # too-many-branches — collectors / rules are linear by design
+    "PLR0911", # too-many-return-statements
+    "PLR0915", # too-many-statements
+    "B008",   # do-not-perform-function-call-in-argument-defaults — Typer pattern
+    "SIM117", # collapsible-with — readability call
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["PLR0915", "B011"]
+"scripts/**" = ["PLR0913"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
