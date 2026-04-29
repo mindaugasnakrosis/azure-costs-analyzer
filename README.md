@@ -1,5 +1,10 @@
 # azure-investigator
 
+[![tests](https://github.com/mindaugasnakrosis/azure-costs-analyzer/actions/workflows/test.yml/badge.svg)](https://github.com/mindaugasnakrosis/azure-costs-analyzer/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![Built with uv](https://img.shields.io/badge/built%20with-uv-DE5FE9.svg)](https://docs.astral.sh/uv/)
+
 **Read-only Azure cost & FinOps audit, delivered as a Claude Code skill.** Snapshots an Azure tenant via the `az` CLI, evaluates against published Microsoft + FinOps Foundation rules, and produces a written analysis (`report.md` + `findings.yaml`) suitable for forwarding to a portfolio CTO.
 
 > Built for private-equity ops teams who need a **20-minute Azure cost review** of a freshly-acquired portfolio company, with every finding grounded in a citable authority (Azure Well-Architected Framework, Cloud Adoption Framework, Advisor recommendation reference, FinOps Foundation, Retail Prices API).
