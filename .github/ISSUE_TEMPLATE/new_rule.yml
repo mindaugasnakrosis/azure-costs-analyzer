@@ -1,0 +1,87 @@
+name: New cost rule proposal
+description: Propose a new rule for `azure-cost-investigator`.
+labels: ["new-rule"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every cost rule must cite a published authority. Open this issue *before* the PR so we can agree on the knowledge document and threshold.
+
+  - type: input
+    id: rule_id
+    attributes:
+      label: Proposed rule_id
+      placeholder: "e.g. premium_disks_on_dev_vms"
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: What waste does it find?
+      description: One paragraph. The £/month signal you expect on a typical tenant.
+    validations:
+      required: true
+
+  - type: input
+    id: authority_url
+    attributes:
+      label: Authority URL
+      description: The published Microsoft / FinOps Foundation / CIS document the rule grounds itself in.
+      placeholder: "https://learn.microsoft.com/..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: threshold
+    attributes:
+      label: Verbatim quoted threshold
+      description: Paste the exact text from the authority that defines the trigger condition.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Proposed severity
+      options:
+        - Critical
+        - High
+        - Medium
+        - Low
+        - Info
+    validations:
+      required: true
+
+  - type: dropdown
+    id: confidence
+    attributes:
+      label: Proposed confidence
+      options:
+        - High (deterministic from inventory)
+        - Medium (windowed metric / documented threshold)
+        - Low (workload-assumption-dependent)
+    validations:
+      required: true
+
+  - type: textarea
+    id: collectors
+    attributes:
+      label: Required collectors
+      description: Which collector payloads does the rule need? List existing names from `azure_investigator_core/collectors/`. If a new collector is needed, file a separate issue.
+
+  - type: textarea
+    id: false_positives
+    attributes:
+      label: Likely false positives
+      description: What legitimate workloads would this rule flag incorrectly? How should the rule guard against them?
+
+  - type: checkboxes
+    id: contract
+    attributes:
+      label: Authoring discipline
+      options:
+        - label: I will author the `knowledge/*.md` document before opening the rule PR.
+        - label: The rule will declare `KNOWLEDGE_REFS` and the analyser will refuse to run it without the corpus document.
+        - label: Every savings figure will be a `SavingsRange` with a non-empty `assumption`.
+        - label: `recommended_investigation` will be a question to answer, not an action to take.

@@ -1,0 +1,53 @@
+name: Knowledge corpus drift
+description: A `knowledge/*.md` document no longer matches its upstream source.
+labels: ["knowledge-drift"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Microsoft + FinOps Foundation pages change. The `scripts/refresh_knowledge.py` maintainer script surfaces drift via `upstream_sha256`. File this issue when:
+        - A verbatim quote in a knowledge document no longer appears on the upstream page, or
+        - A threshold has materially changed and the rule should be recalibrated.
+
+  - type: input
+    id: file
+    attributes:
+      label: Knowledge file
+      placeholder: "vm-rightsizing-thresholds.md"
+    validations:
+      required: true
+
+  - type: input
+    id: source_url
+    attributes:
+      label: Source URL
+      placeholder: "https://learn.microsoft.com/..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: change
+    attributes:
+      label: What changed upstream?
+      description: Paste the old text and the new text side-by-side. Include the date you observed the change if you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: rules_affected
+    attributes:
+      label: Rules affected
+      description: Which rules cite this knowledge file? (See `cited_by:` in the file's frontmatter.)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity_of_drift
+    attributes:
+      label: Severity of the drift
+      options:
+        - Material (threshold changed; rules need recalibration)
+        - Cosmetic (wording changed but rule semantics still valid)
+        - Page moved or removed (need new URL)
+    validations:
+      required: true
