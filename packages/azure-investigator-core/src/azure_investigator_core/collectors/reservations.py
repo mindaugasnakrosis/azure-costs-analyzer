@@ -32,13 +32,34 @@ def _summary_window() -> tuple[str, str]:
 
 
 def _index_summary(records: list[dict]) -> dict[str, dict]:
-    """Index a `consumption reservation summary list` payload by reservation ID."""
+    """Index a `consumption reservation summary list` payload by reservation ID.
+
+    The payload may contain more than one row per reservation when the 30-day
+    window straddles a month boundary (`--grain monthly`). Keep the row with
+    the most recent `usageDate` so we report the latest known utilisation.
+    """
     out: dict[str, dict] = {}
     for r in records or []:
         rsv_id = r.get("reservationId") or r.get("name")
-        if rsv_id:
+        if not rsv_id:
+            continue
+        existing = out.get(rsv_id)
+        if existing is None or str(r.get("usageDate", "")) > str(existing.get("usageDate", "")):
             out[rsv_id] = r
     return out
+
+
+def _leaf(value: str | None) -> str | None:
+    """Return the trailing path segment.
+
+    `az reservations reservation list` returns `name = "{orderGuid}/{rsvGuid}"`
+    and `id = ".../reservations/{rsvGuid}"`, while
+    `az consumption reservation summary list` returns `reservationId = "{rsvGuid}"`.
+    Strip everything before the last '/' so the two surfaces match.
+    """
+    if not value:
+        return None
+    return value.rsplit("/", 1)[-1] or None
 
 
 def collect(subscription_id: str) -> CollectorOutput:
@@ -77,20 +98,20 @@ def collect(subscription_id: str) -> CollectorOutput:
 
         # Merge utilisation onto each reservation record so the rule can read
         # a single property (`avgUtilizationPercentage`) without reaching for
-        # a sibling list.
+        # a sibling list. Match on the leaf reservation GUID — the two az
+        # surfaces disagree on how they format the identifier (see _leaf).
         merged_reservations: list[dict] = []
         for rsv in rsvs.data or []:
-            rsv_id = rsv.get("name") or rsv.get("id", "").split("/")[-1]
-            entry = summary_index.get(rsv_id)
-            merged = (
-                {
-                    **rsv,
-                    "summary": entry,
-                    "avgUtilizationPercentage": entry.get("avgUtilizationPercentage"),
-                }
-                if entry
-                else rsv
-            )
+            rsv_id = _leaf(rsv.get("name")) or _leaf(rsv.get("id"))
+            entry = summary_index.get(rsv_id) if rsv_id else None
+            merged = dict(rsv)
+            if entry:
+                merged["summary"] = entry
+                merged["avgUtilizationPercentage"] = entry.get("avgUtilizationPercentage")
+            elif summary.error:
+                # Surface the consumption call's failure reason so the rule
+                # can distinguish "API unreachable" from "ID didn't match".
+                merged["_utilisation_error"] = summary.error
             merged_reservations.append(merged)
 
         detailed.append(

@@ -22,6 +22,10 @@ RULE_MODULES: tuple[str, ...] = (
     "dev_skus_in_prod",
     "untagged_costly_resources",
     "legacy_storage_redundancy",
+    "advisor_cost_recommendations",
+    "dev_test_offer_eligibility",
+    "log_analytics_retention",
+    "rsv_backup_retention",
 )
 
 

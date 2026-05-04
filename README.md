@@ -27,16 +27,18 @@ If you need a remediation tool, this isn't it. The skill is **read-only by archi
 A `report.md` that opens with headline GBP savings range, top-3 quick wins, top-3 strategic recommendations, then severity-grouped findings. Plus a flat `findings.yaml` for any downstream consumer. See [`docs/example-report.md`](docs/example-report.md) for a full sanitised sample.
 
 ```
-# Azure cost review — 2026-04-29T14-41-29Z
+# Azure cost review — 2026-05-01T13-06-56Z
 
-- Total estimated monthly savings: £97 – £316 / month
-- Findings by severity: Critical 0 · High 0 · Medium 12 · Low 136 · Info 60
+- Total estimated monthly savings: £4,729 – £6,592 / month
+- Findings by severity: Critical 0 · High 15 · Medium 39 · Low 177 · Info 10
 
 ## Top 3 quick wins
-1. Orphaned managed disk: ...-containerRootVolume — £31–£38/mo (severity Medium, confidence High)
-2. Orphaned managed disk: ...-osDisk — £4/mo (severity Medium, confidence High)
-3. Unattached Standard public IP: pip-test-natgw-01 — £2–£3/mo (severity Medium, confidence High)
+1. [Advisor] Compute_Savings_Plan — £674–£824/mo (severity High, confidence High)
+2. [Advisor] Standard_D4ds_v5 reserved instance — £429–£524/mo (severity High, confidence High)
+3. [Advisor] Standard_D4ds_v5 reserved instance — £426–£520/mo (severity High, confidence High)
 ```
+
+For reference, the Azure Advisor portal headline on the same tenant was £20k/yr; the analyser surfaces ~£57k–£79k/yr by combining Advisor's commitment recommendations with knowledge-grounded rules for retention bloat, orphaned resources, sizing, tagging, and offer eligibility.
 
 Every finding cites the `knowledge/*.md` document grounding it. Savings figures are GBP retail-rate ceilings — reservations and negotiated discounts are explicitly not netted out. Severity (Critical → Info) and confidence (High / Medium / Low) are separate axes, both reported.
 
@@ -60,7 +62,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full rationale.
 ```
 packages/
   azure-investigator-core/         # shared: auth, az wrapper, snapshot, pricing, schema, knowledge loader
-  azure-cost-investigator/         # cost / FinOps skill (v1) — 11 rules, 11-doc knowledge corpus
+  azure-cost-investigator/         # cost / FinOps skill (v1) — 15 rules, 14-doc knowledge corpus
   azure-security-investigator/     # reserved namespace; ships in v2 (stub today)
 scripts/
   install_skill.sh                 # symlinks each SKILL.md into ~/.claude/skills/
@@ -185,9 +187,12 @@ No mutating verbs. No `apply`, `remediate`, `fix`, `delete`. The naming is part 
 | [Azure Advisor — cost recommendation reference](https://learn.microsoft.com/en-us/azure/advisor/advisor-reference-cost-recommendations) | Mirroring the canonical taxonomy of cost findings |
 | [Azure Advisor — VM / VMSS shutdown + resize logic](https://learn.microsoft.com/en-us/azure/advisor/advisor-cost-recommendations) | Verbatim P95 CPU + outbound thresholds for idle / oversized VMs |
 | [FinOps Foundation framework](https://www.finops.org/framework/) | Inform / Optimize / Operate phases; reservation utilisation threshold |
+| [Azure Dev/Test pricing](https://azure.microsoft.com/en-us/pricing/dev-test/) | Dev/Test offer eligibility rule (quotaId detection) |
+| [Azure Monitor Logs pricing](https://azure.microsoft.com/en-us/pricing/details/monitor/) | Log Analytics retention rule (free band, archive tier) |
+| [Azure Backup pricing](https://azure.microsoft.com/en-us/pricing/details/backup/) | RSV backup retention bloat + GRS-vs-LRS storage |
 | [Azure Retail Prices REST API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices) | All GBP savings figures |
 
-The full corpus is 11 in-repo `.md` files at `packages/azure-cost-investigator/src/azure_cost_investigator/knowledge/`. List with `azure-cost-investigator knowledge list`; read individual docs with `azure-cost-investigator knowledge show <filename>`.
+The full corpus is 14 in-repo `.md` files at `packages/azure-cost-investigator/src/azure_cost_investigator/knowledge/`. List with `azure-cost-investigator knowledge list`; read individual docs with `azure-cost-investigator knowledge show <filename>`.
 
 ---
 
@@ -206,8 +211,12 @@ The full corpus is 11 in-repo `.md` files at `packages/azure-cost-investigator/s
 | `dev_skus_in_prod` | Medium | Medium | WAF Principle 2 + CAF tagging |
 | `untagged_costly_resources` | Low | High | CAF tagging schema + FinOps Inform phase |
 | `legacy_storage_redundancy` | Low / Medium | Medium | Storage redundancy + WAF cost pillar |
+| `advisor_cost_recommendations` | High / Medium | High | Azure Advisor cost reference (FX-converted USD→GBP) |
+| `dev_test_offer_eligibility` | High / Low | Medium | Dev/Test offer pricing (`MSDNDevTest_*`, `EnterpriseAgreement_DevTest_*`, CSP-aware) |
+| `log_analytics_retention` | Medium / Info | Medium | Azure Monitor Logs retention bands + legacy SKU list |
+| `rsv_backup_retention` | Medium | Medium | Recovery Services Vaults — retention bloat (weekly>52, monthly>12, yearly>5) + GRS-on-nonprod |
 
-To add a twelfth, see [`docs/contributing-a-rule.md`](docs/contributing-a-rule.md). The discipline is *knowledge document first, then code, then tests* — and the analyser refuses to run a rule whose `knowledge_refs` are missing.
+To add a sixteenth, see [`docs/contributing-a-rule.md`](docs/contributing-a-rule.md). The discipline is *knowledge document first, then code, then tests* — and the analyser refuses to run a rule whose `knowledge_refs` are missing.
 
 ---
 
@@ -230,7 +239,7 @@ To add a twelfth, see [`docs/contributing-a-rule.md`](docs/contributing-a-rule.m
 ## Tests
 
 ```bash
-uv run pytest                                              # 128 passed, 1 skipped (~1s)
+uv run pytest                                              # 219 passed, 1 skipped (~1s)
 
 # optional: run the smoke test against a real snapshot
 AZURE_INVESTIGATOR_SMOKE_SNAPSHOT=/path/to/snapshot \

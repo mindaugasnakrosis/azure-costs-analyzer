@@ -22,7 +22,7 @@ from rich.table import Table
 
 from . import __version__
 from .analyse import KnowledgeRefMissing, analyse_snapshot
-from .report import render_markdown, render_yaml
+from .report import render_html, render_markdown, render_yaml
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -48,12 +48,14 @@ def _resolve_snapshot_paths(snapshot_id: str):
     return cfg, paths_for(cfg.snapshot_root, sid)
 
 
-def _write_artefacts(paths, report: Report) -> tuple[Path, Path]:
+def _write_artefacts(paths, report: Report) -> tuple[Path, Path, Path]:
     md_path = paths.base / "report.md"
     yaml_path = paths.base / "findings.yaml"
+    html_path = paths.base / "report.html"
     md_path.write_text(render_markdown(report), encoding="utf-8")
     yaml_path.write_text(render_yaml(report), encoding="utf-8")
-    return md_path, yaml_path
+    html_path.write_text(render_html(report), encoding="utf-8")
+    return md_path, yaml_path, html_path
 
 
 # ---------------------------------------------------------------------------- #
@@ -115,9 +117,10 @@ def analyse(
         raise typer.Exit(2) from None
 
     if write:
-        md_path, yaml_path = _write_artefacts(paths, report)
+        md_path, yaml_path, html_path = _write_artefacts(paths, report)
         console.print(f"[green]wrote[/green] {md_path}")
         console.print(f"[green]wrote[/green] {yaml_path}")
+        console.print(f"[green]wrote[/green] {html_path}")
 
     if show:
         # Render through Rich for terminal readability; the file on disk stays
@@ -136,7 +139,7 @@ def report(
         "md",
         "--format",
         "-f",
-        help="Output format: md (markdown) or json (findings array).",
+        help="Output format: md (markdown), html (printable), or json (findings array).",
     ),
     output: Path | None = typer.Option(
         None, "--output", "-o", help="Write to file instead of stdout."
@@ -157,10 +160,14 @@ def report(
 
     if format == "md":
         text = render_markdown(rep)
+    elif format == "html":
+        text = render_html(rep)
     elif format == "json":
         text = json.dumps(rep.model_dump(mode="json"), indent=2, default=str)
     else:
-        err_console.print(f"[red]Unknown format: {format!r}.[/red] Use md or json.")
+        err_console.print(
+            f"[red]Unknown format: {format!r}.[/red] Use md, html, or json."
+        )
         raise typer.Exit(2)
 
     if output is not None:
@@ -171,6 +178,11 @@ def report(
     else:
         sys.stdout.write(text)
         sys.stdout.flush()
+
+
+# ---------------------------------------------------------------------------- #
+# pyproject dependency declaration: markdown-it-py is already pulled in
+# transitively by Rich, so render_html doesn't add a runtime dependency.
 
 
 # ---------------------------------------------------------------------------- #

@@ -11,6 +11,7 @@ Each module in this package exposes:
 from __future__ import annotations
 
 import importlib
+import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -36,6 +37,8 @@ COLLECTOR_MODULES: tuple[str, ...] = (
     "advisor",
     "consumption",
     "tags",
+    "log_analytics",
+    "recovery_services",
 )
 
 
@@ -71,6 +74,10 @@ def safe_run_json(args: list[str], *, timeout: float | None = 120.0) -> Collecto
         return CollectorOutput.ok(data if data is not None else [])
     except AzCliWriteRefused:
         raise
+    except subprocess.TimeoutExpired as e:
+        return CollectorOutput.failed(
+            f"timed out after {e.timeout}s: az {' '.join(args)}"
+        )
     except (AzCliError, ValueError) as e:
         return CollectorOutput.failed(str(e))
 

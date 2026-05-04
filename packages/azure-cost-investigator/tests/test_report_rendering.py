@@ -41,6 +41,199 @@ def _report(findings, currency="GBP") -> Report:
     )
 
 
+def _advisor(
+    *,
+    subscription_id="sub-1",
+    sub_cat,
+    sku,
+    monthly_low,
+    monthly_high,
+    severity=Severity.HIGH,
+    title=None,
+):
+    return _finding(
+        rule_id="advisor_cost_recommendations",
+        title=title or f"[Advisor] {sub_cat}: {sku}",
+        subscription_id=subscription_id,
+        severity=severity,
+        confidence=Confidence.HIGH,
+        knowledge_refs=["azure-advisor-cost-rules.md"],
+        evidence={"advisor_subcategory": sub_cat, "sku": sku},
+        estimated_savings=SavingsRange(
+            low_gbp_per_month=Decimal(str(monthly_low)),
+            high_gbp_per_month=Decimal(str(monthly_high)),
+            assumption="Microsoft Advisor estimate (test fixture).",
+        ),
+        recommended_investigation="see Advisor",
+    )
+
+
+# ---- headline de-overlap -----------------------------------------------------
+
+
+def test_compute_ri_and_compute_sp_are_alternatives_max_wins():
+    findings = [
+        # Two VM RIs in the same sub: additive within RI cluster, summing to 1100.
+        _advisor(sub_cat="Reservations", sku="Standard_D4ds_v5", monthly_low=400, monthly_high=600),
+        _advisor(sub_cat="Reservations", sku="Standard_D4ds_v5", monthly_low=300, monthly_high=500),
+        # One Compute Savings Plan in the same sub at 700/mo.
+        _advisor(
+            sub_cat="SavingsPlan", sku="Compute_Savings_Plan", monthly_low=600, monthly_high=700
+        ),
+    ]
+    low, high = report_mod._headline_total(findings)
+    # RI sum: low=700 high=1100. SP sum: low=600 high=700. Max wins: low=700 high=1100.
+    assert low == Decimal("700")
+    assert high == Decimal("1100")
+
+
+def test_compute_sp_wins_when_larger_than_ri_sum():
+    findings = [
+        _advisor(sub_cat="Reservations", sku="Standard_D4ds_v5", monthly_low=100, monthly_high=200),
+        _advisor(
+            sub_cat="SavingsPlan", sku="Compute_Savings_Plan", monthly_low=600, monthly_high=900
+        ),
+    ]
+    low, high = report_mod._headline_total(findings)
+    assert low == Decimal("600")
+    assert high == Decimal("900")
+
+
+def test_app_service_ri_is_additive_not_alternative_to_compute_sp():
+    findings = [
+        # App Service RIs across two plans → additive (each plan needs its own RI).
+        _advisor(
+            sub_cat="Reservations",
+            sku="Azure_App_Service_Premium_v3_Plan_Linux_P3_v3",
+            monthly_low=100,
+            monthly_high=200,
+        ),
+        _advisor(
+            sub_cat="Reservations",
+            sku="Azure_App_Service_Premium_v3_Plan_Linux_P3_v3",
+            monthly_low=150,
+            monthly_high=250,
+        ),
+        # Compute SP — separate compute family, doesn't overlap App Service RIs.
+        _advisor(
+            sub_cat="SavingsPlan", sku="Compute_Savings_Plan", monthly_low=300, monthly_high=400
+        ),
+    ]
+    low, high = report_mod._headline_total(findings)
+    # All three should sum cleanly.
+    assert low == Decimal("550")
+    assert high == Decimal("850")
+
+
+def test_database_sp_is_independent_of_compute_alternatives():
+    findings = [
+        _advisor(sub_cat="Reservations", sku="Standard_D4ds_v5", monthly_low=400, monthly_high=500),
+        _advisor(
+            sub_cat="SavingsPlan", sku="Compute_Savings_Plan", monthly_low=600, monthly_high=700
+        ),
+        _advisor(
+            sub_cat="SavingsPlan",
+            sku="Database_Savings_Plan",
+            monthly_low=100,
+            monthly_high=150,
+        ),
+    ]
+    low, high = report_mod._headline_total(findings)
+    # Compute cluster: max(400,600)=600 / max(500,700)=700. Plus DB SP additive.
+    assert low == Decimal("700")
+    assert high == Decimal("850")
+
+
+def test_overlap_collapse_is_per_subscription():
+    findings = [
+        # Sub-1: RI sum=200, SP=300 → SP wins.
+        _advisor(
+            subscription_id="sub-1",
+            sub_cat="Reservations",
+            sku="Standard_D4ds_v5",
+            monthly_low=100,
+            monthly_high=200,
+        ),
+        _advisor(
+            subscription_id="sub-1",
+            sub_cat="SavingsPlan",
+            sku="Compute_Savings_Plan",
+            monthly_low=200,
+            monthly_high=300,
+        ),
+        # Sub-2: RI sum=500, SP=100 → RI wins.
+        _advisor(
+            subscription_id="sub-2",
+            sub_cat="Reservations",
+            sku="Standard_D4ds_v5",
+            monthly_low=400,
+            monthly_high=500,
+        ),
+        _advisor(
+            subscription_id="sub-2",
+            sub_cat="SavingsPlan",
+            sku="Compute_Savings_Plan",
+            monthly_low=50,
+            monthly_high=100,
+        ),
+    ]
+    low, high = report_mod._headline_total(findings)
+    # sub-1: low=200 high=300 (SP). sub-2: low=400 high=500 (RI). Total: 600 / 800.
+    assert low == Decimal("600")
+    assert high == Decimal("800")
+
+
+def test_non_advisor_findings_sum_normally():
+    findings = [
+        _finding(
+            rule_id="orphaned_disks",
+            estimated_savings=SavingsRange(
+                low_gbp_per_month=Decimal("30"),
+                high_gbp_per_month=Decimal("40"),
+                assumption="x",
+            ),
+        ),
+        _advisor(sub_cat="Reservations", sku="Standard_D4ds_v5", monthly_low=400, monthly_high=500),
+        _advisor(
+            sub_cat="SavingsPlan", sku="Compute_Savings_Plan", monthly_low=600, monthly_high=700
+        ),
+    ]
+    low, high = report_mod._headline_total(findings)
+    # disks 30/40 + max(RI 400-500, SP 600-700) → 630 / 740
+    assert low == Decimal("630")
+    assert high == Decimal("740")
+
+
+def test_render_markdown_shows_de_overlap_note_when_collapse_changed_total():
+    findings = [
+        _advisor(sub_cat="Reservations", sku="Standard_D4ds_v5", monthly_low=400, monthly_high=500),
+        _advisor(
+            sub_cat="SavingsPlan", sku="Compute_Savings_Plan", monthly_low=600, monthly_high=700
+        ),
+    ]
+    md = report_mod.render_markdown(_report(findings))
+    assert "de-overlapped" in md
+    # The naive sum should also be cited so the user can see what was removed.
+    assert "Naive sum" in md
+    # Headline = max(RI, SP) = 600 / 700.
+    assert "£600 – £700 / month" in md
+
+
+def test_render_markdown_omits_note_when_no_collapse_happened():
+    findings = [
+        _finding(
+            rule_id="orphaned_disks",
+            estimated_savings=SavingsRange(
+                low_gbp_per_month=Decimal("30"),
+                high_gbp_per_month=Decimal("40"),
+                assumption="x",
+            ),
+        ),
+    ]
+    md = report_mod.render_markdown(_report(findings))
+    assert "de-overlapped" not in md
+
+
 # ---- analyse_snapshot --------------------------------------------------------
 
 
@@ -189,3 +382,41 @@ def test_yaml_output_is_valid_yaml_with_findings_array():
     assert parsed["snapshot_id"] == "2026-04-29T10-00-00Z"
     assert isinstance(parsed["findings"], list)
     assert parsed["findings"][0]["rule_id"] == "orphaned_disks"
+
+
+def test_html_render_is_self_contained_document():
+    r = _report([_finding()])
+    html = report_mod.render_html(r)
+    assert html.startswith("<!DOCTYPE html>")
+    assert "</html>" in html.rstrip()
+    # CSS is inlined so the artefact is a single self-contained file.
+    assert "<style>" in html and "</style>" in html
+    # Title reflects the snapshot id.
+    assert "2026-04-29T10-00-00Z" in html
+    # Body content survives the markdown→html conversion.
+    assert "Orphaned managed disk" in html
+
+
+def test_html_render_includes_severity_and_savings():
+    r = _report(
+        [
+            _finding(
+                title="Orphaned disk: foo",
+                estimated_savings=SavingsRange(
+                    low_gbp_per_month=Decimal("31"),
+                    high_gbp_per_month=Decimal("38"),
+                    assumption="retail rate",
+                ),
+            )
+        ]
+    )
+    html = report_mod.render_html(r)
+    # Headline shows the £ figures from the markdown source.
+    assert "£31" in html
+    assert "£38" in html
+
+
+def test_html_custom_title():
+    r = _report([_finding()])
+    html = report_mod.render_html(r, title="My custom title")
+    assert "<title>My custom title</title>" in html

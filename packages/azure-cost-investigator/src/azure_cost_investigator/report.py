@@ -59,6 +59,93 @@ def _savings_total(findings: Iterable[Finding]) -> tuple[Decimal, Decimal]:
     return low, high
 
 
+# ---------------------------------------------------------------------------- #
+# Headline de-overlap for Advisor cost recommendations.
+#
+# Microsoft Advisor publishes overlapping commitment recommendations: a
+# Compute Savings Plan and a set of VM Reserved Instance recommendations
+# can both target the same compute. Picking one strategy excludes the
+# other for those resources, so summing both into the headline overstates
+# capturable savings. Per-finding detail in the report stays unchanged —
+# this only governs the "Total estimated monthly savings" line.
+#
+# Clustering rules per subscription:
+#   - VM RIs (Reservations, sku Standard_*) and Compute Savings Plans are
+#     alternatives → take max(sum(VM RIs), sum(Compute SPs)).
+#   - App Service RIs are additive across plans (each plan needs its own).
+#   - Database SP is independent of compute commitments.
+#   - Anything else (Spot, Container Insights, Basic logs, etc.) is additive.
+
+ADVISOR_RULE_ID = "advisor_cost_recommendations"
+
+
+def _advisor_cluster_key(sub_cat: str, sku: str) -> tuple[str, str]:
+    """Return (cluster, class). Cluster groups overlapping recommendations;
+    class distinguishes the alternatives within an overlapping cluster."""
+    sub_cat = sub_cat or ""
+    sku = sku or ""
+    if sub_cat == "Reservations" and sku.startswith("Standard_"):
+        return ("compute_commitment", "ri")
+    if sub_cat == "SavingsPlan" and "Compute_Savings_Plan" in sku:
+        return ("compute_commitment", "sp")
+    if sub_cat == "Reservations" and sku.startswith("Azure_App_Service_"):
+        return ("app_service_ri", "ri")
+    if sub_cat == "SavingsPlan" and "Database_Savings_Plan" in sku:
+        return ("database_sp", "sp")
+    return (f"other:{sub_cat}:{sku or 'na'}", "other")
+
+
+def _sum_bands(findings: Iterable[Finding]) -> tuple[Decimal, Decimal]:
+    low, high = Decimal("0"), Decimal("0")
+    for f in findings:
+        if f.estimated_savings is None:
+            continue
+        low += f.estimated_savings.low_gbp_per_month
+        high += f.estimated_savings.high_gbp_per_month
+    return low, high
+
+
+def _advisor_de_overlap_total(findings: list[Finding]) -> tuple[Decimal, Decimal]:
+    """Compute Advisor savings with alternatives collapsed (max-of, not sum)."""
+    # sub_id -> cluster -> class -> [findings]
+    by_sub: dict[str, dict[str, dict[str, list[Finding]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
+    )
+    for f in findings:
+        sub_cat = (f.evidence or {}).get("advisor_subcategory") or ""
+        sku = (f.evidence or {}).get("sku") or ""
+        cluster, klass = _advisor_cluster_key(sub_cat, sku)
+        by_sub[f.subscription_id][cluster][klass].append(f)
+
+    total_low = Decimal("0")
+    total_high = Decimal("0")
+    for clusters in by_sub.values():
+        for cluster, classes in clusters.items():
+            if cluster == "compute_commitment":
+                ri_low, ri_high = _sum_bands(classes.get("ri", []))
+                sp_low, sp_high = _sum_bands(classes.get("sp", []))
+                total_low += max(ri_low, sp_low)
+                total_high += max(ri_high, sp_high)
+            else:
+                for klass_findings in classes.values():
+                    low, high = _sum_bands(klass_findings)
+                    total_low += low
+                    total_high += high
+    return total_low, total_high
+
+
+def _headline_total(findings: Iterable[Finding]) -> tuple[Decimal, Decimal]:
+    """Total monthly savings for the headline, with Advisor alternatives
+    collapsed to the larger of (RI sum, SP sum) per subscription. Other
+    findings sum normally."""
+    findings = list(findings)
+    advisor = [f for f in findings if f.rule_id == ADVISOR_RULE_ID]
+    other = [f for f in findings if f.rule_id != ADVISOR_RULE_ID]
+    other_low, other_high = _savings_total(other)
+    advisor_low, advisor_high = _advisor_de_overlap_total(advisor)
+    return other_low + advisor_low, other_high + advisor_high
+
+
 def _sort_key_quick_win(f: Finding) -> tuple[int, Decimal]:
     """Higher = better quick win: actively-burning Critical/High first, then
     deterministic High-confidence findings, ordered by max savings."""
@@ -137,7 +224,9 @@ def render_markdown(report: Report) -> str:
     for f in findings:
         by_sev[f.severity].append(f)
     counts = {sev: len(by_sev.get(sev, [])) for sev in SEVERITY_ORDER}
-    low, high = _savings_total(findings)
+    low, high = _headline_total(findings)
+    naive_low, naive_high = _savings_total(findings)
+    advisor_overlap_collapsed = (naive_high - high) > 0
 
     lines: list[str] = []
     lines.append(f"# Azure cost review — `{report.snapshot_id}`")
@@ -158,6 +247,23 @@ def render_markdown(report: Report) -> str:
         "negotiated discounts or reservation coverage. Treat them as ceilings, "
         "not invoiced amounts._"
     )
+    lines.append("")
+    lines.append(
+        "_Severity is assigned by the high end of the savings band: "
+        "Critical ≥ £1,500/mo, High ≥ £200/mo, Medium ≥ £30/mo, Low otherwise. "
+        "Findings with no savings band (governance, tagging, env mismatch) "
+        "keep the rule-authored severity._"
+    )
+    if advisor_overlap_collapsed:
+        lines.append("")
+        lines.append(
+            f"_Advisor commitment recommendations are de-overlapped: VM "
+            f"Reserved Instances and Compute Savings Plans target the same "
+            f"compute, so the headline takes the larger of the two per "
+            f"subscription rather than summing. Naive sum (with overlap "
+            f"double-counted) would be {_gbp(naive_low)} – {_gbp(naive_high)} "
+            f"/ month._"
+        )
     lines.append("")
 
     # ---- Top 3 quick wins ----
@@ -267,3 +373,75 @@ def render_yaml(report: Report) -> str:
     """Machine-readable findings.yaml. Flat list of findings + meta."""
     payload = report.model_dump(mode="json")
     return yaml.safe_dump(payload, sort_keys=False)
+
+
+# ---------------------------------------------------------------------------- #
+# HTML render — wraps the markdown render in a self-contained HTML document
+# with print-friendly CSS so the report doubles as an email attachment / PDF
+# source.
+
+_HTML_CSS = """
+:root { --fg: #0f172a; --muted: #475569; --bg: #ffffff; --accent: #1d4ed8;
+        --border: #e2e8f0; --code-bg: #f1f5f9; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica,
+        Arial, sans-serif; color: var(--fg); background: var(--bg);
+        max-width: 920px; margin: 32px auto; padding: 0 24px;
+        line-height: 1.55; }
+h1, h2, h3 { line-height: 1.25; }
+h1 { font-size: 28px; border-bottom: 2px solid var(--border);
+        padding-bottom: 8px; }
+h2 { font-size: 22px; margin-top: 32px; border-bottom: 1px solid var(--border);
+        padding-bottom: 4px; }
+h3 { font-size: 17px; margin-top: 24px; color: var(--muted); }
+p, li { font-size: 15px; }
+em { color: var(--muted); }
+strong { color: var(--fg); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px;
+        font-size: 13px; }
+pre { background: var(--code-bg); padding: 12px 16px; border-radius: 6px;
+        overflow-x: auto; font-size: 13px; }
+ul, ol { padding-left: 22px; }
+li { margin: 4px 0; }
+hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+blockquote { border-left: 3px solid var(--border); margin: 16px 0;
+        padding: 4px 14px; color: var(--muted); }
+table { border-collapse: collapse; width: 100%; margin: 12px 0;
+        font-size: 14px; }
+th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+th { background: #f8fafc; }
+@media print {
+    body { margin: 0; max-width: none; }
+    h2 { page-break-before: auto; }
+    a { color: var(--fg); text-decoration: none; }
+}
+"""
+
+
+def render_html(report: Report, *, title: str | None = None) -> str:
+    """Self-contained HTML document with print-friendly CSS.
+
+    The markdown render is the source of truth; we convert it once here.
+    Designed to double as an email attachment or PDF source (browser
+    print-to-PDF works without further tooling).
+    """
+    from markdown_it import MarkdownIt
+
+    md_text = render_markdown(report)
+    md = MarkdownIt("commonmark", {"breaks": False, "html": False}).enable("table")
+    body_html = md.render(md_text)
+    page_title = title or f"Azure cost review — {report.snapshot_id}"
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"<title>{page_title}</title>\n"
+        f"<style>{_HTML_CSS}</style>\n"
+        "</head>\n"
+        f"<body>\n{body_html}\n</body>\n"
+        "</html>\n"
+    )

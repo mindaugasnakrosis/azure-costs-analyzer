@@ -33,16 +33,20 @@ def snapshot_factory(tmp_path: Path):
         per_sub: dict[str, dict[str, Any]],
         *,
         snapshot_id: str = "2026-04-29T10-00-00Z",
+        sub_names: dict[str, str] | None = None,
     ):
         paths = init_snapshot(tmp_path / "snaps", snapshot_id)
         now = datetime.now(UTC)
+        names = sub_names or {}
 
         subscriptions: list[SubscriptionRef] = []
         results: list[CollectorResult] = []
         collectors_run: list[str] = []
 
         for sub_id, collectors in per_sub.items():
-            subscriptions.append(SubscriptionRef(id=sub_id, name=f"sub-{sub_id}"))
+            subscriptions.append(
+                SubscriptionRef(id=sub_id, name=names.get(sub_id, f"sub-{sub_id}"))
+            )
             for collector, payload in collectors.items():
                 if collector not in collectors_run:
                     collectors_run.append(collector)
