@@ -427,7 +427,8 @@ def render_html(report: Report, *, title: str | None = None) -> str:
     Designed to double as an email attachment or PDF source (browser
     print-to-PDF works without further tooling).
     """
-    from markdown_it import MarkdownIt
+    # Optional dep: only required when callers ask for HTML output.
+    from markdown_it import MarkdownIt  # noqa: PLC0415
 
     md_text = render_markdown(report)
     md = MarkdownIt("commonmark", {"breaks": False, "html": False}).enable("table")

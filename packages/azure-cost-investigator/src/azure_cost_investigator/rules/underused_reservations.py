@@ -120,9 +120,9 @@ def _app_service_band(sku: str) -> tuple[float, float] | None:
     if "app_service" not in s:
         return None
     s_norm = s.replace("_v3", "v3")
-    for key in _APP_SERVICE_BANDS:
+    for key, band in _APP_SERVICE_BANDS.items():
         if s_norm.endswith(f"_{key}") or s_norm.endswith(key):
-            return _APP_SERVICE_BANDS[key]
+            return band
     return None
 
 
@@ -131,9 +131,9 @@ def _premium_disk_band(sku: str) -> tuple[float, float] | None:
     s = sku.lower()
     if "managed_disks" not in s and "managed-disks" not in s:
         return None
-    for key in _PREMIUM_DISK_BANDS:
+    for key, band in _PREMIUM_DISK_BANDS.items():
         if s.endswith(f"_{key}"):
-            return _PREMIUM_DISK_BANDS[key]
+            return band
     return None
 
 
@@ -205,7 +205,10 @@ def _term_remaining_months(rsv_props: dict, default_months: int) -> tuple[int, s
     default forecast horizon (typical 1-year term). Returns
     (months_remaining, source) so the assumption can be transparent.
     """
-    from datetime import UTC, datetime
+    from datetime import (  # noqa: PLC0415  # kept local to keep module-import warm-up fast
+        UTC,
+        datetime,
+    )
 
     expiry = rsv_props.get("expiryDateTime") or rsv_props.get("expiryDate")
     if isinstance(expiry, str) and expiry:

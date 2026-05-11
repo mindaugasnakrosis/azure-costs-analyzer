@@ -226,7 +226,11 @@ def test_forecast_horizon_overridable(snapshot_factory, cost_knowledge):
 
 
 def test_forecast_uses_expiry_when_present(snapshot_factory, cost_knowledge):
-    from datetime import UTC, datetime, timedelta
+    from datetime import (  # noqa: PLC0415  # local to keep cold-test import cost off the suite
+        UTC,
+        datetime,
+        timedelta,
+    )
 
     expiry = (datetime.now(UTC) + timedelta(days=180)).isoformat()
     rsv = _rsv("dead", "Standard_D4s_v5", util_pct=0.0)

@@ -82,11 +82,12 @@ def _dedup_resource_overlaps(findings: list[Finding]) -> list[Finding]:
         if id(f) in suppress:
             continue
         note = annotate.get(id(f))
+        item = f
         if note:
-            f = f.model_copy(
+            item = f.model_copy(
                 update={"recommended_investigation": f.recommended_investigation + note}
             )
-        out.append(f)
+        out.append(item)
     return out
 
 
@@ -157,10 +158,12 @@ def _dedup_billing_scope_findings(findings: list[Finding]) -> list[Finding]:
                 f"are billing-account-scope; this finding is reported once "
                 f"to avoid double-counting in the headline."
             )
-            f = f.model_copy(
+            item = f.model_copy(
                 update={"recommended_investigation": f.recommended_investigation + note}
             )
-        out.append(f)
+        else:
+            item = f
+        out.append(item)
     return out
 
 
@@ -186,9 +189,8 @@ def _retier_by_cost(
             if high >= threshold:
                 new_sev = sev
                 break
-        if new_sev != f.severity:
-            f = f.model_copy(update={"severity": new_sev})
-        out.append(f)
+        item = f.model_copy(update={"severity": new_sev}) if new_sev != f.severity else f
+        out.append(item)
     return out
 
 

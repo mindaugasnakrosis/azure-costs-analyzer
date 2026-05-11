@@ -47,7 +47,7 @@ THRESHOLDS = (
 def test_high_band_promotes_idle_vm_from_medium_to_high():
     f = _f(severity=Severity.MEDIUM, estimated_savings=_band(60, 130))
     (out,) = _retier_by_cost([f], THRESHOLDS)
-    assert out.severity == Severity.LOW or out.severity == Severity.MEDIUM
+    assert out.severity in (Severity.LOW, Severity.MEDIUM)
     # 130 is just below the 200 threshold for High; correct band is Medium.
     assert out.severity == Severity.MEDIUM
 
